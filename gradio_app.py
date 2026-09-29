@@ -38,20 +38,13 @@ def load_pipeline(model, vae, device, memory_budget_gib, offline):
     return _pipe
 
 
-def generate(style, lyrics, cot, seed, cfg_scale, abc_text,
-             model, vae, device, memory_budget_gib, offline, progress=gr.Progress()):
+def build_request(style, lyrics, cot, seed, cfg_scale, abc_text):
     from yue2.protocol import SongRequest
 
     if not style or not style.strip():
         raise gr.Error("Style/tags is required.")
     if cot != "off" and (not lyrics or not lyrics.strip()):
         raise gr.Error("Lyrics are required for full/melody modes.")
-
-    progress(0.05, desc="Loading model (cached after first run)...")
-    try:
-        pipe = load_pipeline(model, vae, device, memory_budget_gib, offline)
-    except Exception as exc:
-        raise gr.Error(f"Failed to load model: {exc}") from exc
 
     req_kwargs = dict(style=style.strip(), cot=cot, id="gradio_song")
     if cot != "off":
@@ -66,18 +59,18 @@ def generate(style, lyrics, cot, seed, cfg_scale, abc_text,
         req_kwargs["abc"] = abc_text.strip()
 
     try:
-        request = SongRequest(**req_kwargs)
+        return SongRequest(**req_kwargs)
     except Exception as exc:
         raise gr.Error(f"Invalid request: {exc}") from exc
 
-    progress(0.15, desc="Generating (planning, synthesis, decoding)...")
+
+def run_one(pipe, request, cot):
     workdir = Path(tempfile.mkdtemp(prefix="yue2_gradio_"))
     try:
         start = time.perf_counter()
         song = pipe(**request.to_dict())
         elapsed = time.perf_counter() - start
         receipt = song.save_artifacts(workdir)
-        progress(1.0, desc="Done")
     except Exception as exc:
         traceback.print_exc()
         shutil.rmtree(workdir, ignore_errors=True)
@@ -87,11 +80,50 @@ def generate(style, lyrics, cot, seed, cfg_scale, abc_text,
     abc_path = workdir / "score.abc"
     abc_out = abc_path.read_text(encoding="utf-8") if abc_path.exists() else "(no symbolic score for cot=off)"
     info = (
-        f"mode={cot}  seconds={receipt['audio_seconds']:.1f}  "
+        f"mode={cot}  seed={request.seed}  seconds={receipt['audio_seconds']:.1f}  "
         f"elapsed={elapsed:.1f}s  identity={receipt['identity'][:16]}...  "
         f"truncated={receipt['truncated']}"
     )
     return str(audio_path), abc_out, info
+
+
+def generate(style, lyrics, cot, seed, cfg_scale, abc_text,
+             model, vae, device, memory_budget_gib, offline, progress=gr.Progress()):
+    progress(0.05, desc="Loading model (cached after first run)...")
+    try:
+        pipe = load_pipeline(model, vae, device, memory_budget_gib, offline)
+    except Exception as exc:
+        raise gr.Error(f"Failed to load model: {exc}") from exc
+
+    request = build_request(style, lyrics, cot, seed, cfg_scale, abc_text)
+    progress(0.15, desc="Generating (planning, synthesis, decoding)...")
+    result = run_one(pipe, request, cot)
+    progress(1.0, desc="Done")
+    return result
+
+
+def generate_two(style, lyrics, cot, seed, cfg_scale, abc_text,
+                  model, vae, device, memory_budget_gib, offline, progress=gr.Progress()):
+    progress(0.03, desc="Loading model (cached after first run)...")
+    try:
+        pipe = load_pipeline(model, vae, device, memory_budget_gib, offline)
+    except Exception as exc:
+        raise gr.Error(f"Failed to load model: {exc}") from exc
+
+    base_seed = int(seed) if seed is not None and seed != "" else None
+    seed_a = base_seed
+    seed_b = (base_seed + 1) if base_seed is not None else None
+
+    progress(0.1, desc="Generating take 1 of 2...")
+    request_a = build_request(style, lyrics, cot, seed_a, cfg_scale, abc_text)
+    result_a = run_one(pipe, request_a, cot)
+
+    progress(0.55, desc="Generating take 2 of 2...")
+    request_b = build_request(style, lyrics, cot, seed_b, cfg_scale, abc_text)
+    result_b = run_one(pipe, request_b, cot)
+
+    progress(1.0, desc="Done")
+    return (*result_a, *result_b)
 
 
 def build_app(model, vae, device, memory_budget_gib, offline):
@@ -119,18 +151,33 @@ def build_app(model, vae, device, memory_budget_gib, offline):
                     lines=6,
                 )
                 with gr.Row():
-                    seed = gr.Textbox(label="Seed (optional)", placeholder="831001")
+                    seed = gr.Textbox(
+                        label="Seed (optional; take 2 uses seed+1)",
+                        placeholder="831001",
+                    )
                     cfg_scale = gr.Textbox(label="CFG scale (optional)", placeholder="")
-                generate_btn = gr.Button("Generate", variant="primary")
+                with gr.Row():
+                    generate_btn = gr.Button("Generate", variant="primary")
+                    generate_two_btn = gr.Button("Generate 2 takes")
             with gr.Column(scale=1):
+                gr.Markdown("### Take 1")
                 audio_out = gr.Audio(label="Generated song", type="filepath")
                 info_out = gr.Textbox(label="Result info", interactive=False)
-                abc_out = gr.Textbox(label="Generated score (ABC)", lines=16, interactive=False)
+                abc_out = gr.Textbox(label="Generated score (ABC)", lines=10, interactive=False)
+                gr.Markdown("### Take 2 (only for \"Generate 2 takes\")")
+                audio_out_b = gr.Audio(label="Generated song (take 2)", type="filepath")
+                info_out_b = gr.Textbox(label="Result info (take 2)", interactive=False)
+                abc_out_b = gr.Textbox(label="Generated score (ABC, take 2)", lines=10, interactive=False)
 
         generate_btn.click(
             fn=lambda *a: generate(*a, model, vae, device, memory_budget_gib, offline),
             inputs=[style, lyrics, cot, seed, cfg_scale, abc_text],
             outputs=[audio_out, abc_out, info_out],
+        )
+        generate_two_btn.click(
+            fn=lambda *a: generate_two(*a, model, vae, device, memory_budget_gib, offline),
+            inputs=[style, lyrics, cot, seed, cfg_scale, abc_text],
+            outputs=[audio_out, abc_out, info_out, audio_out_b, abc_out_b, info_out_b],
         )
     return demo
 
