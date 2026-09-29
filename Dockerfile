@@ -15,7 +15,7 @@ RUN python -m venv .venv \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128 \
     && pip install --no-cache-dir -e . \
-    && pip install --no-cache-dir gradio
+    && pip install --no-cache-dir "gradio" "huggingface-hub<1.0"
 
 COPY gradio_app.py skills/yue2-music/app/gradio_app.py
 COPY run.sh skills/yue2-music/app/run.sh
@@ -24,4 +24,4 @@ RUN chmod +x skills/yue2-music/app/run.sh
 EXPOSE 7860
 
 ENV PORT=7860
-CMD ["/bin/bash", "-c", "source .venv/bin/activate && bash skills/yue2-music/app/run.sh"]
+CMD ["/bin/bash", "-c", "mkdir -p ~/.ssh && (echo \"$PUBLIC_KEY\" >> ~/.ssh/authorized_keys 2>/dev/null || true) && service ssh start 2>/dev/null; source .venv/bin/activate && bash skills/yue2-music/app/run.sh"]
