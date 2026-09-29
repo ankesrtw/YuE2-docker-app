@@ -8,6 +8,7 @@ has yue2-infer installed (see references/models-and-setup.md).
 """
 
 import argparse
+import random
 import shutil
 import tempfile
 import time
@@ -126,58 +127,104 @@ def generate_two(style, lyrics, cot, seed, cfg_scale, abc_text,
     return (*result_a, *result_b)
 
 
-def build_app(model, vae, device, memory_budget_gib, offline):
-    with gr.Blocks(title="YuE2 Song Generator") as demo:
-        gr.Markdown(
-            "# YuE2 Song Generator\n"
-            "Manual, single-song generation. Style/tags and lyrics follow the same "
-            "conventions as the yue2-music skill's `prompt.json` (style, lyrics, cot, seed)."
-        )
-        with gr.Row():
-            with gr.Column(scale=1):
-                style = gr.Textbox(
-                    label="Style / tags",
-                    placeholder="e.g. warm piano pop, expressive female voice, 88 BPM",
-                    lines=2,
-                )
-                lyrics = gr.Textbox(
-                    label="Lyrics ([verse]/[chorus] tags recommended)",
-                    placeholder="[verse]\n...\n\n[chorus]\n...",
-                    lines=12,
-                )
-                cot = gr.Radio(COT_CHOICES, value="full", label="Planning mode (cot)")
-                abc_text = gr.Textbox(
-                    label="Optional ABC input (melody/full only, chord-free for melody)",
-                    lines=6,
-                )
-                with gr.Row():
-                    seed = gr.Textbox(
-                        label="Seed (optional; take 2 uses seed+1)",
-                        placeholder="831001",
-                    )
-                    cfg_scale = gr.Textbox(label="CFG scale (optional)", placeholder="")
-                with gr.Row():
-                    generate_btn = gr.Button("Generate", variant="primary")
-                    generate_two_btn = gr.Button("Generate 2 takes")
-            with gr.Column(scale=1):
-                gr.Markdown("### Take 1")
-                audio_out = gr.Audio(label="Generated song", type="filepath")
-                info_out = gr.Textbox(label="Result info", interactive=False)
-                abc_out = gr.Textbox(label="Generated score (ABC)", lines=10, interactive=False)
-                gr.Markdown("### Take 2 (only for \"Generate 2 takes\")")
-                audio_out_b = gr.Audio(label="Generated song (take 2)", type="filepath")
-                info_out_b = gr.Textbox(label="Result info (take 2)", interactive=False)
-                abc_out_b = gr.Textbox(label="Generated score (ABC, take 2)", lines=10, interactive=False)
+STYLE_PRESETS = [
+    ("Warm piano pop", "warm piano pop, expressive female voice, 88 BPM"),
+    ("Indie folk", "indie folk, acoustic guitar, soft male vocal, intimate, 96 BPM"),
+    ("Synthwave", "synthwave, analog synths, driving beat, dreamy vocal, 110 BPM"),
+    ("Cinematic epic", "cinematic orchestral, strings and choir, epic build, 84 BPM"),
+    ("Lo-fi chill", "lo-fi hip hop, mellow keys, vinyl crackle, laid-back vocal, 78 BPM"),
+]
 
+LYRICS_TEMPLATE = "[verse]\n\n\n[chorus]\n\n\n[verse]\n\n\n[chorus]\n"
+
+CSS = """
+.gradio-container, .gradio-container main.fillable { max-width: 1280px !important; margin: auto; }
+#hero { padding: 28px 32px; border-radius: 20px; margin-bottom: 8px;
+  background: linear-gradient(120deg, #4c1d95 0%, #7c3aed 45%, #c026d3 100%); color: #fff; }
+#hero h1 { margin: 0 0 6px; font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; color: #fff; }
+#hero p { margin: 0; opacity: .85; font-size: 1rem; color: #fff; }
+.card { border: 1px solid var(--border-color-primary); border-radius: 16px !important;
+  padding: 18px !important; background: var(--background-fill-secondary); }
+.chips { flex-wrap: wrap !important; gap: 8px !important; }
+.chips button { flex: 0 0 auto !important; white-space: nowrap !important; border-radius: 999px !important;
+  font-size: .82rem !important; padding: 4px 14px !important; min-width: 0 !important; width: auto !important; }
+#generate-btn { background: linear-gradient(90deg, #7c3aed, #c026d3) !important; border: 0 !important;
+  color: #fff !important; font-weight: 600; box-shadow: 0 6px 20px rgba(124, 58, 237, .35); }
+#generate-btn:hover { filter: brightness(1.08); }
+footer { display: none !important; }
+"""
+
+
+def _setter(value):
+    return lambda: value
+
+
+def _preset_chips(style):
+    with gr.Row(elem_classes="chips"):
+        for label, tags in STYLE_PRESETS:
+            gr.Button(label, size="sm", variant="secondary").click(
+                _setter(tags), outputs=style, show_progress="hidden")
+
+
+def _result_panel(title):
+    with gr.Tab(title):
+        audio = gr.Audio(label="Song", type="filepath", interactive=False)
+        info = gr.Textbox(label="Run info", interactive=False, lines=2)
+        with gr.Accordion("Generated score (ABC)", open=False):
+            abc = gr.Textbox(show_label=False, lines=12, interactive=False, show_copy_button=True)
+    return audio, abc, info
+
+
+def build_app(model, vae, device, memory_budget_gib, offline):
+    theme = gr.themes.Soft(
+        primary_hue="violet", secondary_hue="fuchsia", neutral_hue="slate",
+        font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+        font_mono=[gr.themes.GoogleFont("JetBrains Mono"), "ui-monospace", "monospace"],
+    )
+    with gr.Blocks(title="YuE2 Song Generator", theme=theme, css=CSS) as demo:
+        gr.HTML(
+            '<div id="hero"><h1>YuE2 Song Generator</h1>'
+            "<p>Describe a style, drop in lyrics, get a full song with vocals. "
+            "Compare two takes side by side.</p></div>"
+        )
+        with gr.Row(equal_height=False):
+            with gr.Column(scale=5, elem_classes="card"):
+                style = gr.Textbox(label="Style / tags", lines=2,
+                                   placeholder="genre, instruments, voice, mood, BPM")
+                _preset_chips(style)
+                with gr.Row():
+                    gr.Markdown("**Lyrics**")
+                    template_btn = gr.Button("Insert structure", size="sm", variant="secondary")
+                lyrics = gr.Textbox(show_label=False, lines=14, show_copy_button=True,
+                                    placeholder="[verse]\n...\n\n[chorus]\n...")
+                cot = gr.Radio(COT_CHOICES, value="full", label="Planning mode (cot)",
+                               info="full: plan lyrics + melody  |  melody: melody only  |  off: instrumental, no planning")
+                with gr.Accordion("Advanced", open=False):
+                    with gr.Row():
+                        seed = gr.Number(label="Seed", value=None, precision=0,
+                                         info="Take 2 uses seed + 1")
+                        dice_btn = gr.Button("Random seed", size="sm", variant="secondary")
+                        cfg_scale = gr.Number(label="CFG scale", value=None)
+                    abc_text = gr.Textbox(label="ABC input (melody/full only, chord-free for melody)", lines=6)
+                with gr.Row():
+                    generate_btn = gr.Button("Generate", variant="primary", elem_id="generate-btn", scale=2)
+                    generate_two_btn = gr.Button("Generate 2 takes", scale=1)
+            with gr.Column(scale=6, elem_classes="card"):
+                with gr.Tabs():
+                    audio_out, abc_out, info_out = _result_panel("Take 1")
+                    audio_out_b, abc_out_b, info_out_b = _result_panel("Take 2")
+
+        template_btn.click(_setter(LYRICS_TEMPLATE), outputs=lyrics, show_progress="hidden")
+        dice_btn.click(lambda: random.randint(0, 999999), outputs=seed, show_progress="hidden")
+        inputs = [style, lyrics, cot, seed, cfg_scale, abc_text]
         generate_btn.click(
             fn=lambda *a: generate(*a, model, vae, device, memory_budget_gib, offline),
-            inputs=[style, lyrics, cot, seed, cfg_scale, abc_text],
-            outputs=[audio_out, abc_out, info_out],
+            inputs=inputs, outputs=[audio_out, abc_out, info_out], concurrency_limit=1,
         )
         generate_two_btn.click(
             fn=lambda *a: generate_two(*a, model, vae, device, memory_budget_gib, offline),
-            inputs=[style, lyrics, cot, seed, cfg_scale, abc_text],
-            outputs=[audio_out, abc_out, info_out, audio_out_b, abc_out_b, info_out_b],
+            inputs=inputs, outputs=[audio_out, abc_out, info_out, audio_out_b, abc_out_b, info_out_b],
+            concurrency_limit=1,
         )
     return demo
 

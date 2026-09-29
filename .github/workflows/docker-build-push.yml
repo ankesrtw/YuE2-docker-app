@@ -7,6 +7,7 @@ on:
       - "Dockerfile"
       - "gradio_app.py"
       - "run.sh"
+      - "post_start.sh"
       - ".github/workflows/docker-build-push.yml"
   workflow_dispatch: {}
 

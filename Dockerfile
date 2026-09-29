@@ -17,13 +17,17 @@ RUN python -m venv .venv \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128 \
     && pip install --no-cache-dir -e . \
-    && pip install --no-cache-dir "gradio" "huggingface-hub<1.0" "hf_transfer"
+    && pip install --no-cache-dir "gradio>=5,<6" "huggingface-hub<1.0" "hf_transfer"
 
 COPY gradio_app.py skills/yue2-music/app/gradio_app.py
 COPY run.sh skills/yue2-music/app/run.sh
 RUN chmod +x skills/yue2-music/app/run.sh
 
-EXPOSE 7860
+# Do NOT override CMD: the base image's /start.sh owns sshd + Jupyter setup and
+# calls /post_start.sh once they are up.
+COPY post_start.sh /post_start.sh
+RUN chmod +x /post_start.sh
 
+# 22 = ssh, 7860 = Gradio, 8888 = Jupyter (set JUPYTER_PASSWORD in the template)
+EXPOSE 22 7860 8888
 ENV PORT=7860
-CMD ["/bin/bash", "-c", "mkdir -p ~/.ssh /run/sshd && chmod 700 ~/.ssh && (echo \"$PUBLIC_KEY\" >> ~/.ssh/authorized_keys || true) && ssh-keygen -A && /usr/sbin/sshd; source .venv/bin/activate && bash skills/yue2-music/app/run.sh"]
