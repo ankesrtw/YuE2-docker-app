@@ -15,7 +15,7 @@ RUN python -m venv .venv \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128 \
     && pip install --no-cache-dir -e . \
-    && pip install --no-cache-dir "gradio" "huggingface-hub<1.0"
+    && pip install --no-cache-dir "gradio" "huggingface-hub<1.0" "hf_transfer"
 
 COPY gradio_app.py skills/yue2-music/app/gradio_app.py
 COPY run.sh skills/yue2-music/app/run.sh
