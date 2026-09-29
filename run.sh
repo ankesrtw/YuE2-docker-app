@@ -4,8 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [ -f "/workspace/YuE/.venv/bin/activate" ]; then
-  source /workspace/YuE/.venv/bin/activate
+if [ -f "/opt/YuE/.venv/bin/activate" ]; then
+  source /opt/YuE/.venv/bin/activate
 fi
 
 pip show gradio > /dev/null 2>&1 || pip install --quiet gradio

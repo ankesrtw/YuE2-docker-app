@@ -1,14 +1,16 @@
 # YuE2 Gradio UI image for RunPod.
 # Model weights (YuE2-3B, YuE2-Vae, ~10GB) are NOT baked in here -- they are
-# downloaded from Hugging Face on first run and cached to /workspace, which
-# should be a RunPod volume/disk so the download only happens once per pod.
+# downloaded from Hugging Face on first run and cached under HF's default
+# cache dir. The app itself lives under /opt, NOT /workspace: RunPod pod
+# templates mount a persistent volume at /workspace, which would shadow
+# anything baked into the image at that path on a fresh (empty) volume.
 FROM runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404
 
-WORKDIR /workspace
+WORKDIR /opt
 
 RUN git clone https://github.com/multimodal-art-projection/YuE.git YuE
 
-WORKDIR /workspace/YuE
+WORKDIR /opt/YuE
 
 RUN python -m venv .venv \
     && . .venv/bin/activate \
