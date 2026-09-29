@@ -24,4 +24,4 @@ RUN chmod +x skills/yue2-music/app/run.sh
 EXPOSE 7860
 
 ENV PORT=7860
-CMD ["/bin/bash", "-c", "mkdir -p ~/.ssh /run/sshd && chmod 700 ~/.ssh && (echo \"$PUBLIC_KEY\" >> ~/.ssh/authorized_keys || true) && /usr/sbin/sshd; source .venv/bin/activate && bash skills/yue2-music/app/run.sh"]
+CMD ["/bin/bash", "-c", "mkdir -p ~/.ssh /run/sshd && chmod 700 ~/.ssh && (echo \"$PUBLIC_KEY\" >> ~/.ssh/authorized_keys || true) && ssh-keygen -A && /usr/sbin/sshd; source .venv/bin/activate && bash skills/yue2-music/app/run.sh"]

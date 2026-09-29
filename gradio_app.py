@@ -87,7 +87,7 @@ def generate(style, lyrics, cot, seed, cfg_scale, abc_text,
     abc_path = workdir / "score.abc"
     abc_out = abc_path.read_text(encoding="utf-8") if abc_path.exists() else "(no symbolic score for cot=off)"
     info = (
-        f"mode={receipt['mode']}  seconds={receipt['audio_seconds']:.1f}  "
+        f"mode={cot}  seconds={receipt['audio_seconds']:.1f}  "
         f"elapsed={elapsed:.1f}s  identity={receipt['identity'][:16]}...  "
         f"truncated={receipt['truncated']}"
     )
