@@ -13,6 +13,7 @@ WORKDIR /workspace/YuE
 RUN python -m venv .venv \
     && . .venv/bin/activate \
     && pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128 \
     && pip install --no-cache-dir -e . \
     && pip install --no-cache-dir gradio
 
